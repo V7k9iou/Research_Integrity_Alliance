@@ -1,0 +1,164 @@
+---
+title: "Recent incidents added to the database"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true  
+---
+```{r setup, echo = FALSE}
+options(scipen = 999)
+opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE
+)
+
+### Loading packages
+library(pacman)
+p_load(lubridate, googlesheets4, stringr)
+
+
+### Creating lists to store data and results
+Data <- list()
+Results <- list()
+
+### Creating a variable for the report date
+## I want this to be the most recent Sunday
+
+
+ReportDateStart <- Sys.Date() - days(180)
+ReportDateEnd   <- Sys.Date()
+
+names(ReportDateStart) <- wday(x = ReportDateStart, label = TRUE)
+```
+
+
+Here are the incidents that were added to the database between `r format(x = ReportDateStart, format = " %b %d, %Y")` to `r format(x = ReportDateEnd, format = " %b %d, %Y")`
+
+The _View documentation_ link will only work if you have been granted access to the database. The _View source_ link will work because it's information that is available publicly on the internet.
+
+```{r read-data, cache = TRUE}
+### Reading in raw data
+Data$Incidents <- read_sheet(
+  ss = "https://docs.google.com/spreadsheets/d/1mW8krCu27uXMB1TyVM-eY-3zp8Cs9G-8d_heEuXhkHk/",
+  sheet = "Incidents"
+)
+```
+
+```{r}
+### Making better variable names
+## Replacing white space with underscore
+names(Data$Incidents) <- gsub(
+  x = names(Data$Incidents),
+  pattern = "\\s",
+  replacement = "_"
+)
+
+### Removing rows that don't have an entry date
+Data$Incidents <- Data$Incidents[
+  !is.na(Data$Incidents$Entry_date),
+
+]
+
+### Setting proper class for variables
+Data$Incidents$Incident_ID <- as.integer(Data$Incidents$Incident_ID)
+Data$Incidents$Entry_date  <- ymd(Data$Incidents$Entry_date)
+
+### Subsetting incidents to report on
+Data$IncidentsReport <- Data$Incidents[
+  which(
+    Data$Incidents$Entry_date >= ReportDateStart &
+    Data$Incidents$Entry_date <= ReportDateEnd
+  ),
+
+]
+```
+
+```{r results = "asis"}
+### The list of provinces and territories in the order I want them
+ProvinceAndTerritories <- c(
+  "Canada",
+  "British Columbia",
+  "Alberta",
+  "Saskatchewan",
+  "Manitoba",
+  "Ontario",
+  "Quebec",
+  "New Brunswick",
+  "Prince Edward Island",
+  "Nova Scotia",
+  "Newfoundland and Labrador",
+  "Yukon",
+  "Northwest Territories",
+  "Nunavut"
+)
+
+PathFlags <- list.files(path = "./assets/province_flags", full.name = TRUE)
+
+### Making a vector of the provinces to include in the report
+Provinces <- ProvinceAndTerritories[
+  ProvinceAndTerritories %in% unique(Data$IncidentsReport$Province)
+]
+
+MarkdownText <- ""
+
+for(i in 1:length(Provinces)){
+  ### Getting path to province_i's flag icon
+  PathFlag_i <- PathFlags[
+    str_detect(
+      string = PathFlags,
+      pattern = gsub(x = tolower(Provinces[i]), pattern = "\\s", replacement = "-")
+    )
+  ]
+
+  MarkdownText <- paste0(
+    MarkdownText,
+    paste0("## ", Provinces[i], paste0(" <img src='", PathFlag_i,"' height='14'/>", sep = "")),
+    "\n\n"
+  )
+
+
+  ### Getting incidents for that province
+  OneProvinceIncidents <- Data$IncidentsReport[
+    Data$IncidentsReport$Province == Provinces[i],
+
+  ]
+
+  ### Getting Province_i's institutions
+  OneProvinceIntitutions <- sort(unique(OneProvinceIncidents$Institution))
+
+  for(j in 1:length(OneProvinceIntitutions)){
+    ### Getting incidents for Institution_j
+    OneInstitutionIncidents <- OneProvinceIncidents[
+      OneProvinceIncidents$Institution == OneProvinceIntitutions[j],
+
+    ]
+
+    MarkdownText <- paste0(
+      MarkdownText,
+      paste0("#### ", OneProvinceIntitutions[j], "\n\n")
+    )
+
+    for(k in 1:nrow(OneInstitutionIncidents)){
+      MarkdownText <- paste0(
+        MarkdownText,
+        paste0(
+          k, ". ", OneInstitutionIncidents$Description_of_Event[k], "\n\n",
+          paste0("\t[View documentation](",OneInstitutionIncidents$Documentation[k], ")"),
+          "\t",
+          paste0("\t[View source](",OneInstitutionIncidents$Links[k], ")"),
+          "\n\n"
+        )
+      )
+
+
+    }
+
+  }
+}
+
+
+cat(MarkdownText)
+```
+
